@@ -1,0 +1,27 @@
+from typing import Any
+
+
+DEFAULT_PRODUCT_PROFILE: dict[str, Any] = {
+    "product_name": "Typewise",
+    "category": "AI customer service",
+    "description": (
+        "An enterprise AI customer service platform that helps "
+        "customer service teams automate and resolve customer requests."
+    ),
+    "target_buyer": (
+        "Customer service leaders and CX leaders at mid-market "
+        "and enterprise companies"
+    ),
+    "competitors": [
+        "Intercom Fin",
+        "Zendesk AI",
+        "Ada",
+    ],
+    "verified_capabilities": [
+        "Customer service automation",
+        "Customer request resolution",
+        "Email support workflows",
+        "Chat support workflows",
+        "Social customer service workflows",
+    ],
+}
