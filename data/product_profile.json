@@ -1,18 +1,16 @@
 {
-  "product_name": "Typewise",
-  "category": "AI customer service",
-  "description": "An enterprise AI customer service platform that helps customer service teams automate and resolve customer requests.",
-  "target_buyer": "Customer service leaders and CX leaders at mid-market and enterprise companies",
+  "product_name": "MochiAI",
+  "category": "AI burnout detector",
+  "description": "An AI powered burnout prediction agent based on voice based journaling.",
+  "target_buyer": "B2B",
   "competitors": [
-    "Intercom Fin",
-    "Zendesk AI",
-    "Ada"
+    "Wysa",
+    "Woebot"
   ],
   "verified_capabilities": [
-    "Customer service automation",
-    "Customer request resolution",
-    "Email support workflows",
-    "Chat support workflows",
-    "Social customer service workflows"
+    "voice journaling",
+    "signal extraction",
+    "burnout scores",
+    "support capsule to send to managers or HR."
   ]
 }
