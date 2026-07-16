@@ -12,6 +12,9 @@ from database import (
 from agent import generate_experiment
 from product_config import DEFAULT_PRODUCT_PROFILE
 
+from databricks_pipeline import trigger_lakehouse_pipeline
+from databricks_data import load_gold_opportunities_from_databricks
+
 
 st.set_page_config(
     page_title="SignalHunter",
@@ -19,6 +22,17 @@ st.set_page_config(
     layout="wide",
 )
 
+
+# ---------------------------------------------------------
+# Config
+# ---------------------------------------------------------
+
+SHOW_TECHNICAL_DETAILS = False
+
+
+# ---------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------
 
 def text_to_list(text: str) -> list[str]:
     """Convert comma-separated text into a cleaned list."""
@@ -32,8 +46,13 @@ def text_to_list(text: str) -> list[str]:
 
 def normalize_old_results(opportunities: list[dict]) -> list[dict]:
     """
-    Backward compatibility for older results that used typewise_fit
-    instead of product_fit.
+    Normalize local and Databricks results.
+
+    Handles:
+    - typewise_fit -> product_fit
+    - source_url -> url
+    - missing conversation
+    - competitors_mentioned as string/list
     """
 
     for opportunity in opportunities:
@@ -43,6 +62,55 @@ def normalize_old_results(opportunities: list[dict]) -> list[dict]:
                 "Low",
             )
 
+        if "url" not in opportunity and "source_url" in opportunity:
+            opportunity["url"] = opportunity.get("source_url", "")
+
+        if "conversation" not in opportunity:
+            opportunity["conversation"] = opportunity.get(
+                "cleaned_text",
+                "Conversation text is stored in the source data layer.",
+            )
+
+        competitors = opportunity.get("competitors_mentioned", [])
+
+        if isinstance(competitors, str):
+            competitors = competitors.strip()
+
+            if competitors.startswith("[") and competitors.endswith("]"):
+                competitors = (
+                    competitors.replace("[", "")
+                    .replace("]", "")
+                    .replace("'", "")
+                    .replace('"', "")
+                )
+
+            opportunity["competitors_mentioned"] = [
+                item.strip()
+                for item in competitors.split(",")
+                if item.strip()
+            ]
+
+        if "recommended_action" not in opportunity:
+            opportunity["recommended_action"] = "Monitor"
+
+        if "suggested_angle" not in opportunity:
+            opportunity["suggested_angle"] = "No suggested angle available."
+
+        if "reasoning" not in opportunity:
+            opportunity["reasoning"] = "No reasoning available."
+
+        if "source" not in opportunity:
+            opportunity["source"] = "Unknown"
+
+        if "buying_stage" not in opportunity:
+            opportunity["buying_stage"] = "Unknown"
+
+        if "pain_point" not in opportunity:
+            opportunity["pain_point"] = "Unknown pain point"
+
+        if "intent_score" not in opportunity:
+            opportunity["intent_score"] = 0
+
     return opportunities
 
 
@@ -51,14 +119,10 @@ def run_signal_pipeline(
     max_videos: int = 3,
 ) -> list[dict]:
     """
-    Run the full SignalHunter pipeline from inside Streamlit.
+    Local fallback pipeline.
 
-    Steps:
-    1. Collect public signals.
-    2. Analyze each signal with the LLM.
-    3. Keep opportunities with intent_score >= 40.
-    4. Sort by intent_score.
-    5. Save results to JSON.
+    This is mainly for development. The public app uses the Databricks-backed
+    fresh analysis flow through trigger_lakehouse_pipeline().
     """
 
     signals = collect_signals(
@@ -117,6 +181,89 @@ def run_signal_pipeline(
     return opportunities
 
 
+def get_sample_opportunities() -> list[dict]:
+    """
+    Sample fallback data for instant demo experience.
+
+    Used when no saved opportunities exist yet.
+    """
+
+    return [
+        {
+            "intent_score": 88,
+            "source": "YouTube",
+            "buying_stage": "Active Evaluation",
+            "pain_point": "Looking for alternatives to existing AI wellbeing tools",
+            "competitors_mentioned": ["Wysa", "Woebot"],
+            "product_fit": "High",
+            "recommended_action": "Create Content",
+            "suggested_angle": "Create a comparison-style post about AI burnout detection tools for HR teams.",
+            "reasoning": (
+                "The conversation suggests interest in AI wellbeing tools and alternatives. "
+                "This indicates a strong opportunity to educate users about burnout detection, "
+                "voice journaling, and workplace stress signals."
+            ),
+            "conversation": (
+                "We are exploring AI wellbeing tools for employees but most apps feel generic. "
+                "Are there better alternatives to Wysa or Woebot for workplace burnout?"
+            ),
+            "url": "https://youtube.com",
+        },
+        {
+            "intent_score": 76,
+            "source": "YouTube",
+            "buying_stage": "Research",
+            "pain_point": "Concern about employee burnout and workplace stress",
+            "competitors_mentioned": [],
+            "product_fit": "Medium",
+            "recommended_action": "Educational Response",
+            "suggested_angle": "Explain how voice journaling can help identify burnout patterns earlier.",
+            "reasoning": (
+                "The user is discussing workplace stress and employee burnout. "
+                "The buying intent is not direct yet, but it is relevant to MochiAI's problem space."
+            ),
+            "conversation": (
+                "Burnout is becoming a big issue in our team. I wish there was a way to understand "
+                "stress levels before people completely crash."
+            ),
+            "url": "https://youtube.com",
+        },
+        {
+            "intent_score": 69,
+            "source": "YouTube",
+            "buying_stage": "Problem Aware",
+            "pain_point": "Managers need better visibility into team stress without invading privacy",
+            "competitors_mentioned": [],
+            "product_fit": "Medium",
+            "recommended_action": "Founder Response",
+            "suggested_angle": "Talk about privacy-first burnout signals for teams.",
+            "reasoning": (
+                "This signal shows a real HR/team management problem. "
+                "The person is not asking for a tool yet, but the pain point is aligned with MochiAI."
+            ),
+            "conversation": (
+                "Managers often find out too late that someone is burned out. "
+                "But monitoring people directly feels invasive. There should be a better approach."
+            ),
+            "url": "https://youtube.com",
+        },
+    ]
+
+
+def load_demo_results() -> list[dict]:
+    """
+    Load saved results if available. Otherwise use sample fallback data.
+    """
+
+    saved_results = load_opportunities()
+    saved_results = normalize_old_results(saved_results)
+
+    if saved_results:
+        return saved_results
+
+    return get_sample_opportunities()
+
+
 # ---------------------------------------------------------
 # Session state
 # ---------------------------------------------------------
@@ -126,6 +273,15 @@ if "pipeline_has_run" not in st.session_state:
 
 if "last_run_opportunities" not in st.session_state:
     st.session_state.last_run_opportunities = []
+
+if "databricks_run_id" not in st.session_state:
+    st.session_state.databricks_run_id = None
+
+if "application_run_id" not in st.session_state:
+    st.session_state.application_run_id = None
+
+if "analysis_started" not in st.session_state:
+    st.session_state.analysis_started = False
 
 
 # ---------------------------------------------------------
@@ -143,11 +299,11 @@ if not saved_profile:
 # ---------------------------------------------------------
 
 with st.sidebar:
-    st.header("Tell SignalHunter about your product")
+    st.header("Product Setup")
 
     st.caption(
-        "This helps SignalHunter understand what market, competitors, "
-        "buyers, and product capabilities to analyze."
+        "Tell SignalHunter what you are building so it can find relevant "
+        "buyer-intent conversations."
     )
 
     product_name = st.text_input(
@@ -158,7 +314,10 @@ with st.sidebar:
     category = st.text_input(
         "Category",
         value=saved_profile["category"],
-        help="Example: AI customer service, project management, CRM, design software",
+        help=(
+            "Example: AI burnout detector, CRM, customer support AI, "
+            "project management tool"
+        ),
     )
 
     description = st.text_area(
@@ -190,15 +349,15 @@ with st.sidebar:
     )
 
     max_videos = st.slider(
-        "Videos per search query",
+        "Search depth",
         min_value=1,
         max_value=5,
-        value=3,
-        help="Lower is faster and cheaper. Higher finds more signals.",
+        value=1,
+        help="Lower is faster. Higher may find more signals.",
     )
 
     if st.button(
-        "Save product setup",
+        "Save Product Setup",
         width="stretch",
     ):
         product_profile_to_save = {
@@ -214,6 +373,9 @@ with st.sidebar:
 
         st.session_state.pipeline_has_run = False
         st.session_state.last_run_opportunities = []
+        st.session_state.databricks_run_id = None
+        st.session_state.application_run_id = None
+        st.session_state.analysis_started = False
 
         st.success("Product setup saved.")
         st.rerun()
@@ -232,18 +394,18 @@ if not product_profile:
 st.title("📡 SignalHunter")
 
 st.subheader(
-    "Find buyer-intent conversations your future customers are already having."
+    "Find buyer-intent signals before your competitors do."
 )
 
 st.write(
-    f"SignalHunter is currently set up for **{product_profile['product_name']}**."
+    f"Currently analyzing opportunities for **{product_profile['product_name']}**."
 )
 
 st.markdown(
     """
-    SignalHunter searches public conversations, detects buying intent,
-    identifies competitor mentions and pain points, scores product fit,
-    and recommends the next organic growth action.
+    SignalHunter scans public conversations to find people discussing problems,
+    comparing competitors, asking for alternatives, or looking for recommendations.
+    It turns those conversations into ranked growth opportunities.
     """
 )
 
@@ -251,31 +413,28 @@ st.divider()
 
 
 # ---------------------------------------------------------
-# How it works section
+# Product flow section
 # ---------------------------------------------------------
 
 with st.container():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown("### 1. Find signals")
+        st.markdown("### 1. Enter your product")
         st.write(
-            "Searches public conversations where people discuss problems, "
-            "competitors, alternatives, pricing, and recommendations."
+            "Add your product, target buyer, competitors, and verified capabilities."
         )
 
     with col2:
-        st.markdown("### 2. Score intent")
+        st.markdown("### 2. Find buyer signals")
         st.write(
-            "Uses AI to classify buying stage, pain point, competitor mentions, "
-            "and product fit."
+            "SignalHunter scans public conversations and detects buyer intent."
         )
 
     with col3:
-        st.markdown("### 3. Recommend action")
+        st.markdown("### 3. Take action")
         st.write(
-            "Turns strong signals into useful organic growth actions and "
-            "fast experiments."
+            "Review pain points, competitor mentions, product fit, and suggested growth actions."
         )
 
 
@@ -283,43 +442,166 @@ st.divider()
 
 
 # ---------------------------------------------------------
-# Run pipeline button
+# Optional technical section
 # ---------------------------------------------------------
 
-st.subheader("Run SignalHunter")
+if SHOW_TECHNICAL_DETAILS:
+    st.subheader("Technical Architecture")
+
+    st.write(
+        "SignalHunter uses a Databricks Lakehouse-style pipeline to process "
+        "unstructured public conversations into structured growth intelligence."
+    )
+
+    pipeline_col1, pipeline_col2, pipeline_col3 = st.columns(3)
+
+    with pipeline_col1:
+        st.markdown("### Bronze")
+        st.write("Raw public conversations collected from sources like YouTube.")
+
+    with pipeline_col2:
+        st.markdown("### Silver")
+        st.write("Cleaned and filtered buyer-intent candidates.")
+
+    with pipeline_col3:
+        st.markdown("### Gold")
+        st.write("AI-enriched opportunities ready for analytics.")
+
+    st.divider()
+
+
+# ---------------------------------------------------------
+# User-friendly run section
+# ---------------------------------------------------------
+
+st.subheader("Find Buyer Signals")
 
 st.write(
-    "Click the button below to collect fresh public conversations, "
-    "score buyer intent, and update the dashboard."
+    "View demo results instantly, or run a fresh analysis to scan new public conversations."
 )
 
-run_clicked = st.button(
-    "Analyze Market Signals",
-    type="primary",
+st.warning(
+    "Prototype notice: Fresh analysis runs on free/community infrastructure. "
+    "It may take a few minutes, and occasional timeouts can happen. "
+    "For a faster first look, click **View Demo Results**."
 )
 
-if run_clicked:
-    with st.spinner(
-        f"Finding buyer-intent signals for {product_profile['product_name']}..."
-    ):
+run_col1, run_col2 = st.columns([1, 1])
+
+with run_col1:
+    if st.button("View Demo Results", type="secondary", width="stretch"):
+        demo_opportunities = load_demo_results()
+        demo_opportunities = normalize_old_results(demo_opportunities)
+
+        save_opportunities(demo_opportunities)
+
+        st.session_state.pipeline_has_run = True
+        st.session_state.last_run_opportunities = demo_opportunities
+        st.session_state.analysis_started = False
+
+        st.success(
+            f"Loaded {len(demo_opportunities)} demo buyer-intent opportunities."
+        )
+
+        st.rerun()
+
+with run_col2:
+    if st.button("Run Fresh Analysis", type="primary", width="stretch"):
+        with st.spinner(
+            "Starting fresh analysis. SignalHunter is scanning conversations..."
+        ):
+            try:
+                databricks_run_id, application_run_id = trigger_lakehouse_pipeline(
+                    product_profile=product_profile
+                )
+
+                st.session_state.pipeline_has_run = False
+                st.session_state.databricks_run_id = databricks_run_id
+                st.session_state.application_run_id = application_run_id
+                st.session_state.analysis_started = True
+
+                st.success(
+                    "Fresh analysis started. Please wait 2–5 minutes, then click Show Results."
+                )
+
+            except Exception:
+                st.error(
+                    "Sorry, SignalHunter could not start fresh analysis. "
+                    "Please try again later."
+                )
+
+
+if st.session_state.get("analysis_started"):
+    st.info(
+        "Fresh analysis is running. This usually takes 2–5 minutes."
+    )
+
+    if st.button("Show Results", type="primary"):
         try:
-            fresh_opportunities = run_signal_pipeline(
-                product_profile=product_profile,
-                max_videos=max_videos,
+            lakehouse_df = load_gold_opportunities_from_databricks(
+                run_id=st.session_state.application_run_id
             )
 
-            st.session_state.pipeline_has_run = True
-            st.session_state.last_run_opportunities = fresh_opportunities
+            if lakehouse_df.empty:
+                st.warning(
+                    "Results are not ready yet. Please wait a little longer "
+                    "and click Show Results again."
+                )
+            else:
+                opportunities = lakehouse_df.to_dict("records")
+                opportunities = normalize_old_results(opportunities)
 
-            st.success(
-                f"Pipeline complete. Found "
-                f"{len(fresh_opportunities)} growth opportunities."
+                save_opportunities(opportunities)
+
+                st.session_state.pipeline_has_run = True
+                st.session_state.last_run_opportunities = opportunities
+                st.session_state.analysis_started = False
+
+                st.success(
+                    f"Found {len(opportunities)} buyer-intent opportunities."
+                )
+
+                st.rerun()
+
+        except Exception:
+            st.error(
+                "Could not load results yet. Please wait and try again."
             )
 
-            st.rerun()
 
-        except Exception as exc:
-            st.error(f"Pipeline failed: {exc}")
+# ---------------------------------------------------------
+# Developer-only local fallback
+# ---------------------------------------------------------
+
+if SHOW_TECHNICAL_DETAILS:
+    st.divider()
+
+    with st.expander("Developer tools"):
+        st.write(
+            "Use this only for local testing. Public users should use the main buttons."
+        )
+
+        if st.button("Run Local AI Pipeline"):
+            with st.spinner("Collecting and analyzing public signals locally..."):
+                try:
+                    fresh_opportunities = run_signal_pipeline(
+                        product_profile=product_profile,
+                        max_videos=max_videos,
+                    )
+
+                    save_opportunities(fresh_opportunities)
+
+                    st.session_state.pipeline_has_run = True
+                    st.session_state.last_run_opportunities = fresh_opportunities
+
+                    st.success(
+                        f"Found {len(fresh_opportunities)} opportunities."
+                    )
+
+                    st.rerun()
+
+                except Exception as exc:
+                    st.error(f"Local pipeline failed: {exc}")
 
 
 # ---------------------------------------------------------
@@ -339,15 +621,15 @@ else:
 
 if not opportunities:
     st.info(
-        "Enter your product details in the sidebar, then click "
-        "**Analyze Market Signals** to find buyer-intent conversations."
+        "Set up your product in the sidebar, then click **View Demo Results** "
+        "or **Run Fresh Analysis**."
     )
 
     st.markdown(
         """
         ### What SignalHunter looks for
 
-        SignalHunter tries to find conversations where people are:
+        SignalHunter searches for conversations where people are:
 
         - complaining about a competitor
         - asking for alternatives
@@ -396,6 +678,11 @@ if "competitors_mentioned" not in df.columns:
 if "intent_score" not in df.columns:
     df["intent_score"] = 0
 
+df["intent_score"] = pd.to_numeric(
+    df["intent_score"],
+    errors="coerce",
+).fillna(0).astype(int)
+
 
 st.divider()
 
@@ -405,7 +692,7 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric(
-        "Signals Found",
+        "Opportunities Found",
         len(df),
     )
 
@@ -513,6 +800,13 @@ with left:
 
     competitors = opportunity.get("competitors_mentioned", [])
 
+    if isinstance(competitors, str):
+        competitors = [
+            item.strip()
+            for item in competitors.split(",")
+            if item.strip()
+        ]
+
     st.write(
         "**Competitors Mentioned:**",
         ", ".join(competitors) if competitors else "None detected",
@@ -551,10 +845,12 @@ with st.expander("Why SignalHunter flagged this"):
         opportunity.get("conversation", "No conversation text available.")
     )
 
-    if opportunity.get("url"):
+    source_link = opportunity.get("url") or opportunity.get("source_url")
+
+    if source_link:
         st.link_button(
             "Open Original Source",
-            opportunity["url"],
+            source_link,
         )
 
 
@@ -600,5 +896,7 @@ if st.button(
         st.write("### Next Action")
         st.success(experiment.get("next_action", ""))
 
-    except Exception as exc:
-        st.error(f"Experiment generation failed: {exc}")
+    except Exception:
+        st.error(
+            "Could not generate the growth experiment right now. Please try again."
+        )
