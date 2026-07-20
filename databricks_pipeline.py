@@ -2,6 +2,7 @@ import os
 import uuid
 from typing import Any
 
+import streamlit as st
 from databricks.sdk import WorkspaceClient
 from dotenv import load_dotenv
 
@@ -9,13 +10,20 @@ load_dotenv()
 
 
 def get_required_env(name: str) -> str:
-    """Read required environment variable."""
     value = os.getenv(name)
 
-    if not value:
-        raise ValueError(f"{name} is missing. Add it to your .env file.")
+    if value:
+        return value
 
-    return value
+    try:
+        value = st.secrets[name]
+    except Exception:
+        value = None
+
+    if not value:
+        raise ValueError(f"{name} is missing. Add it to Streamlit secrets.")
+
+    return str(value)
 
 
 def get_databricks_client() -> WorkspaceClient:
