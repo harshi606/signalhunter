@@ -561,10 +561,9 @@ if st.session_state.get("analysis_started"):
 
                 st.rerun()
 
-        except Exception:
-            st.error(
-                "Could not load results yet. Please wait and try again."
-            )
+        except Exception as exc:
+            st.error("Could not load results.")
+            st.exception(exc)
 
 
 # ---------------------------------------------------------
