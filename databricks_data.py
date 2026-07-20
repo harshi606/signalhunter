@@ -1,21 +1,25 @@
 import os
-
-import pandas as pd
-from databricks import sql
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
 def get_required_env(name: str) -> str:
-    """Read required environment variable."""
     value = os.getenv(name)
 
+    if value:
+        return value
+
+    try:
+        value = st.secrets[name]
+    except Exception:
+        value = None
+
     if not value:
-        raise ValueError(f"{name} is missing. Add it to your .env file.")
+        raise ValueError(f"{name} is missing. Add it to Streamlit secrets.")
 
-    return value
-
+    return str(value)
 
 def get_sql_connection():
     """Create Databricks SQL connection."""
