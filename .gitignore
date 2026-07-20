@@ -1,6 +1,11 @@
-.env
+..env
 venv/
-.venv/
 __pycache__/
-*.pyc
+.DS_Store.env
+venv/
+__pycache__/
 .DS_Store
+data/opportunities.json
+.env
+data/opportunities.json
+test_databricks_connection.py

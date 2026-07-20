@@ -3,3 +3,5 @@ pandas
 python-dotenv
 groq
 google-api-python-client
+databricks-sdk
+databricks-sql-connector
