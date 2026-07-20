@@ -526,7 +526,7 @@ with run_col2:
 
             except Exception as exc:
                 st.error("SignalHunter could not start fresh analysis.")
-    st.exception(exc)
+                st.exception(exc)
 
 
 if st.session_state.get("analysis_started"):
