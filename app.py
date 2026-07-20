@@ -524,11 +524,9 @@ with run_col2:
                     "Fresh analysis started. Please wait 2–5 minutes, then click Show Results."
                 )
 
-            except Exception:
-                st.error(
-                    "Sorry, SignalHunter could not start fresh analysis. "
-                    "Please try again later."
-                )
+            except Exception as exc:
+                st.error("SignalHunter could not start fresh analysis.")
+    st.exception(exc)
 
 
 if st.session_state.get("analysis_started"):
