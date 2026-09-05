@@ -28,6 +28,7 @@ def get_required_env(name: str) -> str:
 
 def get_databricks_client() -> WorkspaceClient:
     """Create Databricks workspace client."""
+
     host = get_required_env("DATABRICKS_HOST")
     token = get_required_env("DATABRICKS_TOKEN")
 
@@ -50,6 +51,17 @@ def trigger_lakehouse_pipeline(
 
     job_id = get_required_env("DATABRICKS_JOB_ID")
     youtube_api_key = get_required_env("YOUTUBE_API_KEY")
+
+    # NOTE: confirm this matches what your Gold enrichment notebook actually
+    # expects. Earlier versions of the Gold notebook used a widget named
+    # "gemini_api_key" (Google AI Studio / Gemini), not "groq_api_key". If
+    # your Databricks job's Gold task widget is still named "gemini_api_key",
+    # this parameter is being silently ignored by that task (Databricks jobs
+    # don't error on unused parameters), and the Gold notebook will instead
+    # fail on its own "Missing gemini_api_key" check. Check Workflows > your
+    # job > Gold task > parameters to see which name it actually expects, and
+    # rename either this call or the notebook's widget so they match one
+    # secret consistently (Gemini or Groq, not a mix of both).
     groq_api_key = get_required_env("GROQ_API_KEY")
 
     client = get_databricks_client()
