@@ -34,7 +34,7 @@ SHOW_TECHNICAL_DETAILS = False
 # visitors see a calm maintenance message instead of the Fresh Analysis
 # flow failing or hanging on them. Demo Results still works either way,
 # since that path doesn't touch Databricks at all.
-FRESH_ANALYSIS_UNDER_MAINTENANCE = False
+FRESH_ANALYSIS_UNDER_MAINTENANCE = True
 
 
 # ---------------------------------------------------------
