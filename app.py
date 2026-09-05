@@ -13,7 +13,7 @@ from agent import generate_experiment
 from product_config import DEFAULT_PRODUCT_PROFILE
 
 from databricks_pipeline import trigger_lakehouse_pipeline
-from databricks_data import load_gold_opportunities_from_databricks
+from databricks_data import load_gold_opportunities_with_retry
 
 
 st.set_page_config(
@@ -535,10 +535,27 @@ if st.session_state.get("analysis_started"):
     )
 
     if st.button("Show Results", type="primary"):
+        # status_placeholder lets load_gold_opportunities_with_retry show
+        # live progress ("Warehouse may still be starting up, retrying...")
+        # instead of the UI looking frozen during a cold SQL warehouse start.
+        status_placeholder = st.empty()
+
+        def show_retry_status(message: str) -> None:
+            status_placeholder.info(message)
+
         try:
-            lakehouse_df = load_gold_opportunities_from_databricks(
-                run_id=st.session_state.application_run_id
-            )
+            with st.spinner(
+                "Fetching your buyer-intent opportunities... "
+                "(this can take up to a minute if the warehouse is starting up)"
+            ):
+                lakehouse_df = load_gold_opportunities_with_retry(
+                    run_id=st.session_state.application_run_id,
+                    max_attempts=3,
+                    wait_seconds=20,
+                    status_callback=show_retry_status,
+                )
+
+            status_placeholder.empty()
 
             if lakehouse_df.empty:
                 st.warning(
@@ -562,7 +579,12 @@ if st.session_state.get("analysis_started"):
                 st.rerun()
 
         except Exception as exc:
-            st.error("Could not load results.")
+            status_placeholder.empty()
+            st.error(
+                "Could not load results. The SQL warehouse may be unavailable, "
+                "or the pipeline run may have failed. Check the Databricks job "
+                "run status if this keeps happening."
+            )
             st.exception(exc)
 
 
