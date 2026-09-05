@@ -29,6 +29,13 @@ st.set_page_config(
 
 SHOW_TECHNICAL_DETAILS = False
 
+# Manual kill switch. Flip to True any time you know the Databricks backend
+# is down/misbehaving (e.g. mid-fix, warehouse issues, job failures) so
+# visitors see a calm maintenance message instead of the Fresh Analysis
+# flow failing or hanging on them. Demo Results still works either way,
+# since that path doesn't touch Databricks at all.
+FRESH_ANALYSIS_UNDER_MAINTENANCE = False
+
 
 # ---------------------------------------------------------
 # Helper functions
@@ -506,7 +513,18 @@ with run_col1:
         st.rerun()
 
 with run_col2:
-    if st.button("Run Fresh Analysis", type="primary", width="stretch"):
+    if FRESH_ANALYSIS_UNDER_MAINTENANCE:
+        st.button(
+            "Run Fresh Analysis",
+            type="primary",
+            width="stretch",
+            disabled=True,
+        )
+        st.warning(
+            "🛠️ Fresh analysis is temporarily under maintenance. "
+            "Please check back soon, or click **View Demo Results** in the meantime."
+        )
+    elif st.button("Run Fresh Analysis", type="primary", width="stretch"):
         with st.spinner(
             "Starting fresh analysis. SignalHunter is scanning conversations..."
         ):
@@ -525,8 +543,15 @@ with run_col2:
                 )
 
             except Exception as exc:
-                st.error("SignalHunter could not start fresh analysis.")
-                st.exception(exc)
+                st.session_state.analysis_started = False
+                st.warning(
+                    "🛠️ SignalHunter couldn't start a fresh analysis right now — "
+                    "this usually means the backend is temporarily unavailable. "
+                    "Please try **View Demo Results** instead, or try again shortly."
+                )
+
+                if SHOW_TECHNICAL_DETAILS:
+                    st.exception(exc)
 
 
 if st.session_state.get("analysis_started"):
@@ -580,12 +605,15 @@ if st.session_state.get("analysis_started"):
 
         except Exception as exc:
             status_placeholder.empty()
-            st.error(
-                "Could not load results. The SQL warehouse may be unavailable, "
-                "or the pipeline run may have failed. Check the Databricks job "
-                "run status if this keeps happening."
+            st.warning(
+                "🛠️ SignalHunter is temporarily unable to load results — "
+                "the backend may be under maintenance or briefly unavailable. "
+                "Please try again in a few minutes, or click **View Demo Results** "
+                "to see the tool in action right now."
             )
-            st.exception(exc)
+
+            if SHOW_TECHNICAL_DETAILS:
+                st.exception(exc)
 
 
 # ---------------------------------------------------------
