@@ -2,23 +2,54 @@ import json
 import os
 from typing import Any
 
+import streamlit as st
 from dotenv import load_dotenv
 from groq import Groq
 
 load_dotenv()
 
 
+def get_required_env(name: str) -> str:
+    """
+    Same pattern used in databricks_pipeline.py / databricks_data.py.
+
+    On Streamlit Community Cloud, secrets live in st.secrets, not as OS
+    environment variables — load_dotenv() only helps for local .env files
+    and does nothing on the deployed app. The original get_groq_client()
+    only checked os.getenv(), which meant GROQ_API_KEY was silently missing
+    in production even when it was correctly set in Streamlit secrets.
+    """
+    value = os.getenv(name)
+
+    if value:
+        return value
+
+    try:
+        value = st.secrets[name]
+    except Exception:
+        value = None
+
+    if not value:
+        raise ValueError(f"{name} is missing. Add it to Streamlit secrets.")
+
+    return str(value)
+
+
 def get_groq_client() -> Groq:
     """Create and return the Groq client."""
 
-    api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-        raise ValueError(
-            "GROQ_API_KEY is missing."
-        )
+    api_key = get_required_env("GROQ_API_KEY")
 
     return Groq(api_key=api_key)
+
+
+# llama-3.3-70b-versatile was deprecated by Groq on 2026-06-17 and fully
+# decommissioned on 2026-08-16 — calls to it now fail outright with a
+# model_decommissioned error. openai/gpt-oss-120b is Groq's recommended
+# replacement for this model as of this fix. If this breaks again in the
+# future, check https://console.groq.com/docs/deprecations first before
+# assuming it's a code bug.
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 def generate_experiment(
@@ -179,7 +210,7 @@ Return JSON only.
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=GROQ_MODEL,
             messages=[
                 {
                     "role": "system",
