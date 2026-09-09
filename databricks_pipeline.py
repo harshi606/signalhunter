@@ -82,7 +82,7 @@ def trigger_lakehouse_pipeline(
             ),
             "youtube_api_key": youtube_api_key,
             "groq_api_key": groq_api_key,
-            "max_signals": "10",
+            "max_signals": "30",
         },
     )
 
